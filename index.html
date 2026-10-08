@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="ca">
+<head>
+  <meta charset="UTF-8">
+  <title>Intèrpret i Validador de Pseudocodi</title>
+  <style>
+    * { box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    body { margin: 0; padding: 20px; background: #0f172a; color: #f8fafc; }
+    h1 { font-size: 1.25rem; margin-bottom: 12px; color: #38bdf8; display: flex; align-items: center; justify-content: space-between; }
+    .container { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; height: calc(100vh - 100px); }
+    .pane { display: flex; flex-direction: column; background: #1e293b; border-radius: 8px; border: 1px solid #334155; overflow: hidden; }
+    .pane-header { padding: 10px 14px; background: #334155; font-size: 0.85rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; display: flex; justify-content: space-between; align-items: center; }
+    textarea { flex: 1; width: 100%; padding: 12px; background: #0f172a; color: #e2e8f0; border: none; font-family: "Fira Code", monospace; font-size: 0.9rem; resize: none; outline: none; line-height: 1.5; }
+    .output { flex: 1; padding: 12px; background: #000; color: #4ade80; font-family: "Fira Code", monospace; font-size: 0.85rem; overflow-y: auto; white-space: pre-wrap; line-height: 1.4; }
+    .error { color: #f87171; }
+    .warning { color: #fbbf24; }
+    .actions { display: flex; gap: 8px; }
+    button { background: #0284c7; color: white; border: none; padding: 6px 14px; border-radius: 4px; font-weight: 600; cursor: pointer; transition: 0.2s; }
+    button:hover { background: #0369a1; }
+    .btn-clear { background: #475569; }
+    .btn-clear:hover { background: #334155; }
+  </style>
+</head>
+<body>
+
+  <h1>
+    <span>Simulador i Validador de Pseudocodi</span>
+    <div class="actions">
+      <button class="btn-clear" onclick="clearConsole()">Neteja consola</button>
+      <button onclick="runInterpreter()">Valida i Executa ▶</button>
+    </div>
+  </h1>
+
+  <div class="container">
+    <div class="pane">
+      <div class="pane-header">Editor de Pseudocodi</div>
+      <textarea id="codeEditor" spellcheck="false">const
+    L_TO_CC: real = 1000.0;
+end const
+
+algorithm volumeConversion
+    var
+        volume: integer;
+    end var
+
+    writeString("Input volume (in cc): ");
+    volume := readInteger();
+
+    writeString("The volume (in l) is: ");
+    writeReal(integerToReal(volume) / L_TO_CC);
+end algorithm</textarea>
+    </div>
+
+    <div class="pane">
+      <div class="pane-header">Consola d'Execució i Errors</div>
+      <div id="outputConsole" class="output">Prem "Valida i Executa" per comprovar l'algorisme.</div>
+    </div>
+  </div>
+
+  <script>
+    const consoleEl = document.getElementById("outputConsole");
+    function print(msg, className = "") {
+      const span = document.createElement("span");
+      if (className) span.className = className;
+      span.textContent = msg;
+      consoleEl.appendChild(span);
+      consoleEl.scrollTop = consoleEl.scrollHeight;
+    }
+    function println(msg = "", className = "") {
+      print(msg + "\n", className);
+    }
+    function clearConsole() {
+      consoleEl.innerHTML = "";
+    }
+
+    async function runInterpreter() {
+      clearConsole();
+      const code = document.getElementById("codeEditor").value;
+      const lines = code.split("\n");
+
+      println("─── 1. ANÀLISI I VALIDACIÓ ESTÀTICA ───", "warning");
+
+      const symbols = {};
+      const consts = {};
+      let inConst = false;
+      let inVar = false;
+      let hasErrors = false;
+
+      // Eliminació de comentaris entre claus { ... }
+      const cleanCode = code.replace(/\{[^}]*\}/g, "");
+
+      for (let i = 0; i < lines.length; i++) {
+        let line = lines[i].trim();
+        const lineNum = i + 1;
+
+        // Treure comentaris de línia
+        line = line.replace(/\{[^}]*\}/g, "").trim();
+        if (!line) continue;
+
+        if (line.startsWith("const")) { inConst = true; continue; }
+        if (line === "end const") { inConst = false; continue; }
+        if (line.startsWith("var")) { inVar = true; continue; }
+        if (line === "end var") { inVar = false; continue; }
+
+        // Validació constants: CONST_NAME: tipus = valor;
+        if (inConst) {
+          const match = line.match(/^([A-Z0-9_]+)\s*:\s*(integer|real|boolean|string|char)\s*=\s*(.+?);?$/);
+          if (match) {
+            const [_, name, type, rawVal] = match;
+            const val = rawVal.replace(";", "").trim();
+            if (type === "real" && !val.includes(".")) {
+              println(`[Línia ${lineNum}] Error: La constant '${name}' està definida com a 'real' però no conté decimals (ex. .0)`, "error");
+              hasErrors = true;
+            }
+            if (type === "integer" && val.includes(".")) {
+              println(`[Línia ${lineNum}] Error: La constant '${name}' està definida com a 'integer' però té decimals.`, "error");
+              hasErrors = true;
+            }
+            consts[name] = { type, value: val };
+            symbols[name] = { type, value: type === "real" ? parseFloat(val) : (type === "integer" ? parseInt(val) : val) };
+          }
+        }
+
+        // Validació variables: varName: tipus;
+        if (inVar) {
+          const match = line.match(/^([a-zA-Z0-9_]+)\s*:\s*(integer|real|boolean|string|char);?$/);
+          if (match) {
+            const [_, name, type] = match;
+            symbols[name] = { type, value: undefined };
+          }
+        }
+
+        // Regla estricta: Operador '/' només entre reals
+        if (line.includes("/")) {
+          if (!line.includes("div")) {
+            const tokens = line.split("/");
+            for (let t = 0; t < tokens.length - 1; t++) {
+              const left = tokens[t].trim().split(/[\s(]+/).pop();
+              const right = tokens[t + 1].trim().split(/[\s);,]+/)[0];
+
+              if (symbols[left] && symbols[left].type === "integer") {
+                println(`[Línia ${lineNum}] Error de tipus: '${left}' és integer. L'operador '/' només admet reals (utilitza 'div' per a enters o 'integerToReal').`, "error");
+                hasErrors = true;
+              }
+              if (symbols[right] && symbols[right].type === "integer") {
+                println(`[Línia ${lineNum}] Error de tipus: '${right}' és integer. L'operador '/' només admet reals.`, "error");
+                hasErrors = true;
+              }
+            }
+          }
+        }
+
+        // Regla estricta: codeToChar rep enter, no char
+        if (/codeToChar\s*\(\s*['"][^'"]*['"]\s*\)/.test(line)) {
+          println(`[Línia ${lineNum}] Error de tipus: 'codeToChar' espera un enter com a paràmetre, no un caràcter.`, "error");
+          hasErrors = true;
+        }
+
+        // Regla estricta: charToCode rep char, no enter
+        if (/charToCode\s*\(\s*\d+\s*\)/.test(line)) {
+          println(`[Línia ${lineNum}] Error de tipus: 'charToCode' espera un caràcter (ex: 'A'), no un enter.`, "error");
+          hasErrors = true;
+        }
+
+        // Validació enumerats: Comprovar que no s'hagin posat cometes
+        if (line.includes("type") || line.includes("{")) {
+          if (/=\s*\{\s*"[^"]+"\s*(,\s*"[^"]+"\s*)*\}/.test(line)) {
+            println(`[Línia ${lineNum}] Error de sintaxi: Els elements dels tipus enumerats no porten cometes dobles.`, "error");
+            hasErrors = true;
+          }
+        }
+      }
+
+      if (hasErrors) {
+        println("\n❌ No es pot iniciar l'execució fins que es corregeixin els errors anteriors.", "error");
+        return;
+      }
+
+      println("✔ Validació de tipus i sintaxi superada amb èxit.", "warning");
+      println("\n─── 2. SIMULACIÓ EN TEMPS D'EXECUCIÓ ───\n");
+
+      // Execució pas a pas de les instruccions del cos
+      let inBody = false;
+      for (let i = 0; i < lines.length; i++) {
+        let line = lines[i].replace(/\{[^}]*\}/g, "").trim();
+        if (!line) continue;
+
+        if (line.startsWith("algorithm")) { inBody = true; continue; }
+        if (line === "end algorithm") { inBody = false; continue; }
+        if (line.startsWith("var") || line === "end var") continue;
+        if (line.startsWith("const") || line === "end const") continue;
+
+        if (inBody) {
+          // writeString(...)
+          const matchWriteStr = line.match(/^writeString\s*\(\s*"([^"]*)"\s*\);?$/);
+          if (matchWriteStr) {
+            print(matchWriteStr[1]);
+            continue;
+          }
+
+          // writeReal(...) o writeInteger(...) o writeBoolean(...)
+          const matchWriteGeneric = line.match(/^write(Real|Integer|Boolean|Char)\s*\(\s*(.+)\s*\);?$/);
+          if (matchWriteGeneric) {
+            const expr = matchWriteGeneric[2];
+            try {
+              const res = evaluateExpr(expr, symbols);
+              print(res.toString());
+            } catch (err) {
+              println("\n[Error d'execució]: " + err.message, "error");
+              return;
+            }
+            continue;
+          }
+
+          // Assignacions: var := readInteger()
+          const matchRead = line.match(/^([a-zA-Z0-9_]+)\s*:=\s*read(Integer|Real|Char|String|Boolean)\s*\(\s*\);?$/);
+          if (matchRead) {
+            const varName = matchRead[1];
+            const readType = matchRead[2];
+            const input = prompt(`[Entrada E/S requerida per a '${varName}' (${readType})]:`);
+            if (readType === "Integer") symbols[varName].value = parseInt(input);
+            else if (readType === "Real") symbols[varName].value = parseFloat(input);
+            else if (readType === "Boolean") symbols[varName].value = (input.toLowerCase() === "true");
+            else symbols[varName].value = input;
+            println(input); // Mostra l'entrada a la consola com en un terminal interactiu
+            continue;
+          }
+
+          // Assignacions directes: var := expressió
+          const matchAssign = line.match(/^([a-zA-Z0-9_]+)\s*:=\s*(.+?);?$/);
+          if (matchAssign) {
+            const varName = matchAssign[1];
+            const expr = matchAssign[2];
+            try {
+              symbols[varName].value = evaluateExpr(expr, symbols);
+            } catch (err) {
+              println("\n[Error d'execució]: " + err.message, "error");
+              return;
+            }
+          }
+        }
+      }
+
+      println("\n\n✔ Execució completada.");
+    }
+
+    // Avaluador d'expressions amb funcions integrades
+    function evaluateExpr(expr, symbols) {
+      let jsExpr = expr;
+
+      // Transformació de funcions del Nomenclàtor a JS
+      jsExpr = jsExpr.replace(/integerToReal\(([^)]+)\)/g, "Number($1)");
+      jsExpr = jsExpr.replace(/realToInteger\(([^)]+)\)/g, "Math.trunc($1)");
+      jsExpr = jsExpr.replace(/charToCode\('([^'])'\)/g, "('$1'.charCodeAt(0))");
+      jsExpr = jsExpr.replace(/codeToChar\(([^)]+)\)/g, "String.fromCharCode($1)");
+
+      // Operadors especials
+      jsExpr = jsExpr.replace(/\bdiv\b/g, "/"); // Després es trunca si cal
+      jsExpr = jsExpr.replace(/\bmod\b/g, "%");
+      jsExpr = jsExpr.replace(/≠/g, "!=");
+      jsExpr = jsExpr.replace(/≥/g, ">=");
+      jsExpr = jsExpr.replace(/≤/g, "<=");
+      jsExpr = jsExpr.replace(/\band\b/g, "&&");
+      jsExpr = jsExpr.replace(/\bor\b/g, "||");
+      jsExpr = jsExpr.replace(/\bnot\b/g, "!");
+
+      // Substitució de valors de variables i constants
+      for (const [name, data] of Object.entries(symbols)) {
+        const regex = new RegExp(`\\b${name}\\b`, "g");
+        if (data.value !== undefined) {
+          jsExpr = jsExpr.replace(regex, data.value);
+        }
+      }
+
+      return Function(`"use strict"; return (${jsExpr})`)();
+    }
+  </script>
+</body>
+</html>
