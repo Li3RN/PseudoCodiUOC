@@ -20,7 +20,7 @@
     .btn-clear { background: #475569; }
     .btn-clear:hover { background: #334155; }
 
-    /* Modal personalitzat per a comandes d'entrada (read) */
+    /* Modal personalitzat d'Entrada de Dades */
     .modal-overlay {
       display: none;
       position: fixed;
@@ -269,11 +269,33 @@ end algorithm</textarea>
           }
         }
 
-        // Signatures de funcions
+        // Validació estricta de signatures: integerToReal
+        const matchIntToReal = line.match(/integerToReal\s*\(\s*([a-zA-Z0-9_]+)\s*\)/);
+        if (matchIntToReal) {
+          const argName = matchIntToReal[1];
+          if (symbols[argName] && symbols[argName].type === "real") {
+            println(`[Línia ${lineNum}] Error de tipus: 'integerToReal' espera un argument de tipus integer, però '${argName}' és de tipus real.`, "error");
+            hasErrors = true;
+          }
+        }
+
+        // Validació estricta de signatures: realToInteger
+        const matchRealToInt = line.match(/realToInteger\s*\(\s*([a-zA-Z0-9_]+)\s*\)/);
+        if (matchRealToInt) {
+          const argName = matchRealToInt[1];
+          if (symbols[argName] && symbols[argName].type === "integer") {
+            println(`[Línia ${lineNum}] Error de tipus: 'realToInteger' espera un argument de tipus real, però '${argName}' és de tipus integer.`, "error");
+            hasErrors = true;
+          }
+        }
+
+        // Validació estricta de signatures: codeToChar
         if (/codeToChar\s*\(\s*['"][^'"]*['"]\s*\)/.test(line)) {
           println(`[Línia ${lineNum}] Error de tipus: 'codeToChar' espera un enter (codi ASCII), no pas un caràcter literal.`, "error");
           hasErrors = true;
         }
+
+        // Validació estricta de signatures: charToCode
         if (/charToCode\s*\(\s*\d+\s*\)/.test(line)) {
           println(`[Línia ${lineNum}] Error de tipus: 'charToCode' espera un caràcter, no pas un enter.`, "error");
           hasErrors = true;
@@ -352,7 +374,7 @@ end algorithm</textarea>
 
             const trimmedInput = input.trim();
 
-            // Validació estricta de l'entrada segons el tipus
+            // Validació estricta segons el tipus d'entrada esperat
             if (readType === "Integer") {
               if (!/^-?\d+$/.test(trimmedInput)) {
                 println(`\n[Error de tipus]: El valor '${trimmedInput}' no és un enter vàlid per a readInteger(). S'ha rebut un real o text.`, "error");
@@ -361,7 +383,7 @@ end algorithm</textarea>
               symbols[varName].value = parseInt(trimmedInput, 10);
             } else if (readType === "Real") {
               if (isNaN(Number(trimmedInput)) || trimmedInput === "") {
-                println(`\n[Error de tipus]: El valor '${trimmedInput}' no és un real vàlid.`, "error");
+                println(`\n[Error de tipus]: El valor '${trimmedInput}' no és un real vàlid per a readReal().`, "error");
                 return;
               }
               symbols[varName].value = parseFloat(trimmedInput);
@@ -381,7 +403,7 @@ end algorithm</textarea>
             continue;
           }
 
-          // Assignacions ordinàries de càlcul
+          // Assignacions de càlcul
           const matchAssign = line.match(/^([a-zA-Z0-9_]+)\s*:=\s*(.+?);?$/);
           if (matchAssign) {
             const varName = matchAssign[1];
